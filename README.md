@@ -1,22 +1,26 @@
 <div align="center">
 
 ```
-  ███████╗████████╗ █████╗     ██╗███╗   ██╗███████╗██╗ ██████╗ ██╗  ██╗████████╗
-  ██╔════╝╚══██╔══╝██╔══██╗    ██║████╗  ██║██╔════╝██║██╔════╝ ██║  ██║╚══██╔══╝
-  ███████╗   ██║   ███████║    ██║██╔██╗ ██║███████╗██║██║  ███╗███████║   ██║   
-  ╚════██║   ██║   ██╔══██║    ██║██║╚██╗██║╚════██║██║██║   ██║██╔══██║   ██║   
-  ███████║   ██║   ██║  ██║    ██║██║ ╚████║███████║██║╚██████╔╝██║  ██║   ██║   
-  ╚══════╝   ╚═╝   ╚═╝  ╚═╝    ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝ ╚═════╝╚═╝  ╚═╝   ╚═╝   
+ ██████╗██╗  ██╗██╗██████╗ ███╗   ███╗███████╗███╗   ██╗████████╗ ██████╗ ██████╗ 
+██╔════╝██║  ██║██║██╔══██╗████╗ ████║██╔════╝████╗  ██║╚══██╔══╝██╔═══██╗██╔══██╗
+██║     ███████║██║██████╔╝██╔████╔██║█████╗  ██╔██╗ ██║   ██║   ██║   ██║██████╔╝
+██║     ██╔══██║██║██╔═══╝ ██║╚██╔╝██║██╔══╝  ██║╚██╗██║   ██║   ██║   ██║██╔══██╗
+╚██████╗██║  ██║██║██║     ██║ ╚═╝ ██║███████╗██║ ╚████║   ██║   ╚██████╔╝██║  ██║
+ ╚═════╝╚═╝  ╚═╝╚═╝╚═╝     ╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝
 ```
 
-### 把 IC 設計的「部落知識」翻譯成新人也能看懂的語言
+### 把資深 IC 工程師的肩膀，借給每一位新人
 
-**An AI-assisted translator that turns cryptic STA reports into onboarding-friendly knowledge cards.**
+**An AI-powered mentor that translates IC design's "tribal knowledge" into onboarding-friendly cards. Your senior engineer, on call 24/7.**
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)
 ![LLM](https://img.shields.io/badge/LLM-Llama_3.3_70B-orange)
 ![Status](https://img.shields.io/badge/Status-MVP-yellow)
 ![Domain](https://img.shields.io/badge/Domain-CAD%2FEDA-green)
+
+> **Current Edition: ChipMentor for STA**  
+> 第一個版本針對 IC 設計新人最痛的入口——Static Timing Analysis 報告。  
+> 未來將擴展至 Synthesis、APR、DFT 等其他 EDA 文件類型。
 
 </div>
 
@@ -37,7 +41,7 @@
 > 📊 IC 設計需要大型跨領域團隊合作多年完成，設計資料從概念到 tape-out 呈指數成長；**但目前所有工具都是給工程師用的，沒有一個工具把技術現狀「翻譯」給管理層看**。  
 > — Keysight, EDA Workflow Analysis
 
-**STA Insight 是針對「病灶一：Log 密碼化 / 知識部落化」的第一個原型。**
+**ChipMentor 是針對「病灶一：Log 密碼化 / 知識部落化」的第一個原型，第一版專攻 STA。**
 
 ---
 
@@ -55,7 +59,7 @@
 3. 結構化輸出五大區塊：
    - Report Overview
    - Violated Paths
-   - Met Paths  
+   - Met Paths
    - Key Concepts（slack / startpoint / clock skew）
    - Recommended Actions
 4. 用 `rich` 在 terminal 渲染為易讀的卡片
@@ -78,9 +82,9 @@ PATH 1 - VIOLATED
   ... (數百行細節)
 ```
 
-### After（STA Insight 產出的知識卡片）
+### After（ChipMentor 產出的知識卡片）
 ```
-┌─ STA Insight ────────────────────────────────────────────┐
+┌─ ChipMentor ─────────────────────────────────────────────┐
 │  📋 Report Overview                                       │
 │  Design: cpu_core_top  |  3 paths analyzed  |  2 failed   │
 │                                                           │
@@ -109,11 +113,11 @@ PATH 1 - VIOLATED
 
 ### 安裝
 ```bash
-git clone https://github.com/Pric0123/sta-insight.git
-cd sta-insight
+git clone https://github.com/Pric0123/chipmentor.git
+cd chipmentor
 
-python3 -m venv ~/sta-insight-env
-source ~/sta-insight-env/bin/activate
+python3 -m venv ~/chipmentor-env
+source ~/chipmentor-env/bin/activate
 
 pip install groq python-dotenv rich
 
@@ -151,20 +155,25 @@ python3 sta_parser.py sta_report_sample.txt
 
 ---
 
-## 🗺 Roadmap
+## 🗺 Roadmap：ChipMentor 產品線
 
-### Phase 1（目前）
+### Phase 1 — ChipMentor for STA（目前）
 - [x] 單檔 STA report 解析 + LLM 翻譯
 - [x] Terminal 友善輸出
 - [ ] Streamlit Web UI（給非工程師讀者用）
 
-### Phase 2
+### Phase 2 — 真實接入 + 防幻覺
 - [ ] 接 OpenROAD / Yosys 真實 log 來源
 - [ ] Deterministic parser + LLM hybrid（防幻覺）
 - [ ] 評估報告：閱讀時間、正確率、資訊壓縮率
 
-### Phase 3
-- [ ] 延伸到病灶三：自動寄送「給 PM 看的一頁摘要 email」
+### Phase 3 — 擴展到整個 EDA 流程
+- [ ] ChipMentor for Synthesis（合成 log）
+- [ ] ChipMentor for APR（佈局繞線 log）
+- [ ] ChipMentor for DFT（測試插入 log）
+
+### Phase 4 — 跨層級分眾
+- [ ] ChipMentor for PM：自動寄送「給管理層看的一頁摘要」
 - [ ] CI 整合（每次 RTL 變更自動產出 insight）
 
 ---
@@ -181,5 +190,7 @@ python3 sta_parser.py sta_report_sample.txt
 ---
 
 <div align="center">
+
+**「真正的工程創新來自跨領域的視角。」**
 
 </div>
