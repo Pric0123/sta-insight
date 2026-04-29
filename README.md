@@ -182,6 +182,4 @@ python3 sta_parser.py sta_report_sample.txt
 
 <div align="center">
 
-**「真正的工程創新來自跨領域的視角。」**
-
 </div>
