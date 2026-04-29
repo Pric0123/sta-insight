@@ -1,0 +1,47 @@
+========================================
+  Static Timing Analysis Report
+  Design: cpu_core_top
+  Tool: PrimeTime vO-2018.06
+  Date: 2026-04-29
+========================================
+
+PATH 1 - VIOLATED
+  Startpoint : clk_div/q_reg[3] (rising edge-triggered flip-flop clocked by CLK)
+  Endpoint   : alu/result_reg[7] (rising edge-triggered flip-flop clocked by CLK)
+  Path Group : CLK
+  Path Type  : max
+
+  slack (VIOLATED) : -0.347 ns
+
+  Point                                    Incr       Path
+  -------------------------------------------------------
+  clock CLK (rise edge)                   0.000      0.000
+  clk_div/q_reg[3]/CK (DFFX1)            0.000      0.000
+  clk_div/q_reg[3]/Q (DFFX1)             0.152      0.152
+  U1234/Y (INVX2)                         0.043      0.195
+  U1235/Y (AND2X1)                        0.078      0.273
+  alu/result_reg[7]/D (DFFX1)            0.000      0.273
+  data arrival time                                  0.273
+
+  clock CLK (rise edge)                   0.250      0.250
+  clock network delay                     0.023      0.273
+  alu/result_reg[7]/CK (DFFX1)           0.000      0.273
+  library setup time                     -0.347     -0.074
+  data required time                                -0.074
+
+PATH 2 - MET
+  Startpoint : mem_ctrl/addr_reg[0]
+  Endpoint   : cache/tag_reg[0]
+  slack (MET) : 0.128 ns
+
+PATH 3 - VIOLATED
+  Startpoint : pll_out/clk_reg
+  Endpoint   : io_ctrl/sync_reg[2]
+  slack (VIOLATED) : -0.892 ns
+
+========================================
+  Summary
+  Total Paths : 3
+  Violated    : 2
+  MET         : 1
+========================================
