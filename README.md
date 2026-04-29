@@ -57,17 +57,12 @@
 1. 讀取原始 STA report（純文字）
 2. 用 LLM（Llama 3.3 70B via Groq）做語意理解
 3. 結構化輸出五大區塊：
-   - Report Overview
-   - Violated Paths
-   - Met Paths
-   - Key Concepts（slack / startpoint / clock skew）
-   - Recommended Actions
 4. 用 `rich` 在 terminal 渲染為易讀的卡片
 
 ### 驗證（Validation）
 - ✅ 對 sample report 能產出結構化解釋
-- 🚧 量化指標尚待補完（閱讀時間實驗、LLM 正確率抽樣）
-- 🚧 邊界測試（>1MB 大型 report、LLM 幻覺防護）
+- 量化指標尚待補完（閱讀時間實驗、LLM 正確率抽樣）
+- 邊界測試（>1MB 大型 report、LLM 幻覺防護）
 
 ---
 
