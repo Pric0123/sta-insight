@@ -4,7 +4,6 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_PATH="$HOME/sta-insight-env"
-REPORT="${1:-sta_report_sample.txt}"
 
 # 啟動虛擬環境
 source "$ENV_PATH/bin/activate"
@@ -22,4 +21,4 @@ fi
 
 # 跑主程式
 cd "$SCRIPT_DIR"
-python3 sta_parser.py "$REPORT"
+python3 sta_parser.py "$@"

@@ -90,8 +90,10 @@ def parse_sta_report(report_path: str, mode: str = "onboarding"):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="ChipMentor STA Report Analyzer")
-    parser.add_argument("report", help="STA report 檔案路徑")
+    parser.add_argument("reports", nargs="+", help="STA report 檔案路徑（可多個）")
     parser.add_argument("--mode", default="onboarding",
                         help="分析模式（預設：onboarding）")
     args = parser.parse_args()
-    parse_sta_report(args.report, args.mode)
+    for report in args.reports:
+        print(f"\n{'='*60}")
+        parse_sta_report(report, args.mode)
