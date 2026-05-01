@@ -36,81 +36,159 @@ def read_report(report_path: str) -> str:
         return path.read_text(encoding="latin-1")
 
 # ─────────────────────────────────────────
-# Logic Depth 計算（多格式 fallback）
+# 格式偵測
 # ─────────────────────────────────────────
-# PrimeTime cell 行的幾種常見格式：
-#   U1234/Y (INVX2)          0.043      0.195
-#   clk_div/q_reg[3]/Q (DFFX1)  0.152   0.152
-#   net_name                 0.000      0.273  ← 這種沒有括號，是 net，不算
+def detect_format(report_content: str) -> str:
+    """
+    偵測 STA report 格式：
+    - primetime：有 'Design:' header 和 'slack (VIOLATED) : -0.347 ns'
+    - openroad：沒有 'Design:'，slack 在前面 '-57.638   slack (VIOLATED)'
+    - unknown：無法判斷
+    """
+    if re.search(r"Design:\s*\S+", report_content):
+        return "primetime"
+    if re.search(r"[-\d.]+\s+slack\s*\((?:VIOLATED|MET)\)", report_content):
+        return "openroad"
+    # fallback：嘗試看有沒有任何 slack 行
+    if re.search(r"slack\s*\((?:VIOLATED|MET)\)", report_content):
+        return "primetime"
+    return "unknown"
+
+# ─────────────────────────────────────────
+# Logic Depth 計算
+# ─────────────────────────────────────────
 CELL_LINE_PATTERNS = [
-    # 格式1：標準 cell instance，有 (CELL_TYPE)
     re.compile(r"^\s+\S+/\S+\s+\(\w+\)\s+[\d.]+\s+[\d.]+"),
-    # 格式2：頂層 cell，無斜線但有括號
     re.compile(r"^\s+\w+\s+\(\w+\)\s+[\d.]+\s+[\d.]+"),
+    # OpenROAD 格式：有 Fanout Cap Slew Delay Time 欄位
+    re.compile(r"^\s+\d+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[\d.]+\s+[v^]\s+\S+"),
 ]
 
 def count_logic_depth(block: str) -> int:
-    """
-    計算路徑的邏輯深度（cell 數）。
-    使用多個 pattern fallback，避免單一 regex 脆弱性。
-    回傳 -1 表示無法解析（讓呼叫端決定怎麼處理）。
-    """
     matched_lines = set()
     for pattern in CELL_LINE_PATTERNS:
         for line in block.split("\n"):
             if pattern.match(line):
                 matched_lines.add(line)
-
     if not matched_lines:
-        return -1  # 明確表示「無法解析」，不回傳 0 避免誤導
-
-    # 扣除起終點 FF（通常是第一行和最後一行 cell）
-    depth = max(0, len(matched_lines) - 2)
-    return depth
+        return -1
+    return max(0, len(matched_lines) - 2)
 
 # ─────────────────────────────────────────
-# Deterministic Parser
+# Slack 解析（支援兩種格式）
+# ─────────────────────────────────────────
+def parse_slack(block: str, fmt: str) -> tuple:
+    """
+    回傳 (slack_value, is_violated)
+    支援：
+    - PrimeTime: slack (VIOLATED) : -0.347 ns
+    - OpenROAD:  -57.638   slack (VIOLATED)
+    """
+    if fmt == "primetime":
+        m = re.search(r"slack\s*\((VIOLATED|MET)\)\s*:\s*([-\d.]+)", block)
+        if m:
+            return float(m.group(2)), m.group(1) == "VIOLATED"
+    elif fmt == "openroad":
+        m = re.search(r"([-\d.]+)\s+slack\s*\((VIOLATED|MET)\)", block)
+        if m:
+            return float(m.group(1)), m.group(2) == "VIOLATED"
+    # 通用 fallback：兩種都試
+    m = re.search(r"slack\s*\((VIOLATED|MET)\)\s*:\s*([-\d.]+)", block)
+    if m:
+        return float(m.group(2)), m.group(1) == "VIOLATED"
+    m = re.search(r"([-\d.]+)\s+slack\s*\((VIOLATED|MET)\)", block)
+    if m:
+        return float(m.group(1)), m.group(2) == "VIOLATED"
+    return None, None
+
+# ─────────────────────────────────────────
+# Startpoint / Endpoint 解析（支援兩種格式）
+# ─────────────────────────────────────────
+def parse_startpoint(block: str) -> str:
+    # PrimeTime: "  Startpoint : clk_div/..."
+    m = re.search(r"Startpoint\s*:\s*(.+)", block)
+    if m:
+        return m.group(1).strip()
+    # OpenROAD: "Startpoint: dpath.a_reg..."
+    m = re.search(r"Startpoint:\s*(.+)", block)
+    if m:
+        return m.group(1).strip()
+    return "未解析"
+
+def parse_endpoint(block: str) -> str:
+    m = re.search(r"Endpoint\s*:\s*(.+)", block)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"Endpoint:\s*(.+)", block)
+    if m:
+        return m.group(1).strip()
+    return "未解析"
+
+# ─────────────────────────────────────────
+# Deterministic Parser（支援兩種格式）
 # ─────────────────────────────────────────
 def extract_violated_paths(report_content: str) -> dict:
     result = {
         "design": None, "tool": None,
         "total_paths": 0, "violated_count": 0, "met_count": 0,
         "violated_paths": [], "met_paths": [],
-        "parse_confidence": "high", "parse_warnings": []
+        "parse_confidence": "high", "parse_warnings": [],
+        "format": "unknown"
     }
 
-    design_match = re.search(r"Design:\s*(\S+)", report_content)
-    tool_match = re.search(r"Tool:\s*(.+)", report_content)
-    if design_match: result["design"] = design_match.group(1).strip()
-    if tool_match: result["tool"] = tool_match.group(1).strip()
+    # 偵測格式
+    fmt = detect_format(report_content)
+    result["format"] = fmt
+    if fmt == "unknown":
+        result["parse_warnings"].append("無法識別 report 格式，嘗試通用解析")
+    else:
+        console.print(f"[blue]🔎 偵測到格式：{fmt}[/blue]")
 
-    total_match = re.search(r"Total Paths\s*:\s*(\d+)", report_content)
-    violated_match = re.search(r"Violated\s*:\s*(\d+)", report_content)
-    met_match = re.search(r"MET\s*:\s*(\d+)", report_content)
+    # PrimeTime 專有 header
+    if fmt == "primetime":
+        design_match = re.search(r"Design:\s*(\S+)", report_content)
+        tool_match = re.search(r"Tool:\s*(.+)", report_content)
+        if design_match: result["design"] = design_match.group(1).strip()
+        if tool_match: result["tool"] = tool_match.group(1).strip()
 
-    if total_match: result["total_paths"] = int(total_match.group(1))
-    else: result["parse_warnings"].append("找不到 Total Paths，可能不是標準格式")
-    if violated_match: result["violated_count"] = int(violated_match.group(1))
-    if met_match: result["met_count"] = int(met_match.group(1))
+        total_match = re.search(r"Total Paths\s*:\s*(\d+)", report_content)
+        violated_match = re.search(r"Violated\s*:\s*(\d+)", report_content)
+        met_match = re.search(r"MET\s*:\s*(\d+)", report_content)
+        if total_match: result["total_paths"] = int(total_match.group(1))
+        else: result["parse_warnings"].append("找不到 Total Paths")
+        if violated_match: result["violated_count"] = int(violated_match.group(1))
+        if met_match: result["met_count"] = int(met_match.group(1))
 
-    path_blocks = re.split(r'(?=PATH\s+\d+\s*-)', report_content)
+    # OpenROAD 格式：直接從 slack 行統計
+    elif fmt == "openroad":
+        result["parse_warnings"].append("OpenROAD 格式：無 Summary，路徑數從 slack 行統計")
+        violated_count = len(re.findall(r"[-\d.]+\s+slack\s*\(VIOLATED\)", report_content))
+        met_count = len(re.findall(r"[-\d.]+\s+slack\s*\(MET\)", report_content))
+        result["violated_count"] = violated_count
+        result["met_count"] = met_count
+        result["total_paths"] = violated_count + met_count
+
+    # 區塊化解析（兩種格式都適用）
+    # PrimeTime 用 "PATH N -" 分割，OpenROAD 用 "Startpoint:" 分割
+    if fmt == "primetime":
+        path_blocks = re.split(r'(?=PATH\s+\d+\s*-)', report_content)
+    else:
+        # OpenROAD：每個 Startpoint 開始是一個新 path
+        path_blocks = re.split(r'(?=^Startpoint:)', report_content, flags=re.MULTILINE)
 
     for block in path_blocks:
-        if not block.strip() or not block.startswith("PATH"):
+        if not block.strip():
             continue
 
-        first_line = block.split('\n')[0]
-        is_violated = "VIOLATED" in first_line
-        is_met = "MET" in first_line
-        if not (is_violated or is_met):
+        slack_val, is_violated = parse_slack(block, fmt)
+        if slack_val is None:
             continue
 
-        startpoint_m = re.search(r"Startpoint\s*:\s*(.+)", block)
-        endpoint_m = re.search(r"Endpoint\s*:\s*(.+)", block)
-        slack_m = re.search(r"slack\s*\((?:VIOLATED|MET)\)\s*:\s*([-\d.]+)", block)
-        group_m = re.search(r"Path Group\s*:\s*(\S+)", block)
-        type_m = re.search(r"Path Type\s*:\s*(\S+)", block)
-        arrival_m = re.search(r"data arrival time\s+([-\d.]+)", block)
+        startpoint = parse_startpoint(block)
+        endpoint = parse_endpoint(block)
+
+        group_m = re.search(r"Path Group\s*:?\s*(\S+)", block)
+        type_m = re.search(r"Path Type\s*:?\s*(\S+)", block)
 
         raw_type = type_m.group(1).strip().lower() if type_m else "未標示"
         if raw_type == "max":
@@ -121,104 +199,94 @@ def extract_violated_paths(report_content: str) -> dict:
             path_type = raw_type
 
         logic_depth = count_logic_depth(block)
-        depth_display = f"{logic_depth} gates" if logic_depth >= 0 else "無法解析"
 
         path_data = {
-            "startpoint": startpoint_m.group(1).strip() if startpoint_m else "未解析",
-            "endpoint": endpoint_m.group(1).strip() if endpoint_m else "未解析",
-            "slack_ns": float(slack_m.group(1)) if slack_m else 0.0,
+            "startpoint": startpoint,
+            "endpoint": endpoint,
+            "slack_ns": slack_val,
             "path_group": group_m.group(1).strip() if group_m else "未標示",
             "path_type": path_type,
-            "data_arrival_time": float(arrival_m.group(1)) if arrival_m else None,
             "logic_depth": logic_depth,
-            "logic_depth_display": depth_display
+            "logic_depth_display": f"{logic_depth} gates" if logic_depth >= 0 else "無法解析"
         }
 
         if is_violated:
             result["violated_paths"].append(path_data)
-        elif is_met:
+        else:
             result["met_paths"].append(path_data)
 
+    # 信心度評估
     expected = result["violated_count"]
     actual = len(result["violated_paths"])
     if expected > 0 and actual == 0:
         result["parse_confidence"] = "low"
-        result["parse_warnings"].append(f"Summary 顯示 {expected} 條違規，parser 一條都沒抓到")
+        result["parse_warnings"].append(f"預期 {expected} 條違規，parser 一條都沒抓到")
     elif expected > 0 and actual < expected:
         result["parse_confidence"] = "medium"
-        result["parse_warnings"].append(f"Summary 顯示 {expected} 條，只抓到 {actual} 條")
+        result["parse_warnings"].append(f"預期 {expected} 條，只抓到 {actual} 條")
 
     return result
 
-def smart_chunk(report_content: str, max_chars: int = 8000) -> str:
-    lines = report_content.split("\n")
-    header_lines, violated_blocks, met_lines, summary_lines = [], [], [], []
-    current_block, in_violated, in_met, in_summary = [], False, False, False
-    violated_count = 0
+def smart_chunk(report_content: str, fmt: str, max_chars: int = 8000) -> str:
+    if fmt == "primetime":
+        lines = report_content.split("\n")
+        header_lines, violated_blocks, met_lines, summary_lines = [], [], [], []
+        current_block, in_violated, in_met, in_summary = [], False, False, False
+        violated_count = 0
 
-    for line in lines:
-        if any(k in line for k in ["Design:", "Tool:", "Date:"]):
-            header_lines.append(line)
-            continue
-        if re.search(r"PATH\s+\d+\s*[-]\s*VIOLATED", line, re.IGNORECASE):
-            if in_violated and current_block:
-                violated_blocks.append("\n".join(current_block))
-            if violated_count < 5:
-                in_violated, in_met, in_summary = True, False, False
-                current_block = [line]
-                violated_count += 1
-            else:
-                in_violated = False
-            continue
-        if re.search(r"PATH\s+\d+\s*[-]\s*MET", line, re.IGNORECASE):
-            if in_violated and current_block:
-                violated_blocks.append("\n".join(current_block))
-                current_block = []
-            in_violated, in_met, in_summary = False, True, False
-            met_lines.append(line)
-            continue
-        if "Summary" in line:
-            if in_violated and current_block:
-                violated_blocks.append("\n".join(current_block))
-                current_block = []
-            in_violated, in_met, in_summary = False, False, True
-            summary_lines.append(line)
-            continue
-        if in_violated: current_block.append(line)
-        elif in_met: met_lines.append(line)
-        elif in_summary: summary_lines.append(line)
+        for line in lines:
+            if any(k in line for k in ["Design:", "Tool:", "Date:"]):
+                header_lines.append(line)
+                continue
+            if re.search(r"PATH\s+\d+\s*[-]\s*VIOLATED", line, re.IGNORECASE):
+                if in_violated and current_block:
+                    violated_blocks.append("\n".join(current_block))
+                if violated_count < 5:
+                    in_violated, in_met, in_summary = True, False, False
+                    current_block = [line]
+                    violated_count += 1
+                else:
+                    in_violated = False
+                continue
+            if re.search(r"PATH\s+\d+\s*[-]\s*MET", line, re.IGNORECASE):
+                if in_violated and current_block:
+                    violated_blocks.append("\n".join(current_block))
+                    current_block = []
+                in_violated, in_met, in_summary = False, True, False
+                met_lines.append(line)
+                continue
+            if "Summary" in line:
+                if in_violated and current_block:
+                    violated_blocks.append("\n".join(current_block))
+                    current_block = []
+                in_violated, in_met, in_summary = False, False, True
+                summary_lines.append(line)
+                continue
+            if in_violated: current_block.append(line)
+            elif in_met: met_lines.append(line)
+            elif in_summary: summary_lines.append(line)
 
-    if in_violated and current_block:
-        violated_blocks.append("\n".join(current_block))
+        if in_violated and current_block:
+            violated_blocks.append("\n".join(current_block))
 
-    parts = []
-    if header_lines: parts.append("\n".join(header_lines))
-    if violated_blocks: parts.append("\n\n".join(violated_blocks))
-    if met_lines: parts.append("\n".join(met_lines))
-    if summary_lines: parts.append("\n".join(summary_lines))
+        parts = []
+        if header_lines: parts.append("\n".join(header_lines))
+        if violated_blocks: parts.append("\n\n".join(violated_blocks))
+        if met_lines: parts.append("\n".join(met_lines))
+        if summary_lines: parts.append("\n".join(summary_lines))
+        chunked = "\n\n".join(parts)
 
-    chunked = "\n\n".join(parts)
+    else:
+        # OpenROAD：直接截取前 max_chars 字元
+        chunked = report_content
+
     return chunked[:max_chars] + "\n...(已截斷)" if len(chunked) > max_chars else chunked
 
-# ─────────────────────────────────────────
-# LLM 輸出驗證（修正：用關鍵字而非完整字串）
-# ─────────────────────────────────────────
-# 只存「關鍵字」，不存完整 header 字串
-# 這樣 prompt 裡的 header 可以有附加說明（例如括號內的提示）
-# 而不會讓 validate 失敗
 REQUIRED_SECTION_KEYWORDS = [
-    "Report 總覽",
-    "違規路徑",   # 不是「違規路徑分析」，避免 prompt header 有括號時比對失敗
-    "通過路徑",
-    "新人必知觀念",
-    "建議行動"
+    "Report 總覽", "違規路徑", "通過路徑", "新人必知觀念", "建議行動"
 ]
 
 def validate_llm_output(text: str) -> tuple:
-    """
-    檢查 LLM 是否輸出了所有必要段落。
-    用關鍵字比對而非完整字串，避免 prompt header 附加說明導致驗證失敗。
-    """
     missing = [
         kw for kw in REQUIRED_SECTION_KEYWORDS
         if not re.search(r"^#{1,3}\s*.*" + re.escape(kw), text, re.MULTILINE)
@@ -227,8 +295,8 @@ def validate_llm_output(text: str) -> tuple:
 
 def build_prompt(structured_data: dict, chunked_report: str) -> str:
     confidence = structured_data.get("parse_confidence", "high")
+    fmt = structured_data.get("format", "unknown")
 
-    # 整理違規路徑顯示（用 logic_depth_display 而非原始數字）
     violated_display = []
     for p in structured_data.get("violated_paths", []):
         violated_display.append({
@@ -242,9 +310,10 @@ def build_prompt(structured_data: dict, chunked_report: str) -> str:
 
     base = f"""你是一位資深 IC 設計工程師，正在幫助新人理解 STA report。請用**繁體中文**回答。
 
-以下是由 Deterministic Parser 自動解析的結構化資料，這是 ground truth：
+Report 格式：{fmt}
+以下是由 Deterministic Parser 自動解析的結構化資料（ground truth）：
 
-- 設計名稱：{structured_data.get('design', '未知')}
+- 設計名稱：{structured_data.get('design') or '未偵測到（OpenROAD 格式無此欄位）'}
 - 總路徑數：{structured_data.get('total_paths', 0)}
 - 違規路徑數：{structured_data.get('violated_count', 0)} 條
 - 通過路徑數：{structured_data.get('met_count', 0)} 條
@@ -252,34 +321,30 @@ def build_prompt(structured_data: dict, chunked_report: str) -> str:
 {json.dumps(violated_display, ensure_ascii=False, indent=2)}
 
 🚨 【防幻覺嚴格守則】🚨
-1. **Setup vs Hold 絕對限制**：
-   - path_type 為 'max (Setup Time)'：建議減少邏輯深度、換大 driving cell、降低 net delay。
-   - path_type 為 'min (Hold Time)'：**絕對禁止**建議減少邏輯！必須建議「增加 Delay」。
-2. **logic_depth 推論限制**：
-   - 若 logic_depth 顯示「無法解析」：禁止推測邏輯深度，只能說「Log 資訊不足」。
-   - 若深度高（> 10）：可合理推測邏輯過深。
-   - 若深度低（< 5）卻仍違規：可能是高 Fanout、Net delay 或 Clock Skew，禁止說是邏輯太深。
-3. **資訊不足時承認**：遇到缺失欄位，直接寫「資訊不足，無法判斷」。
-4. **建議行動要具體**：給工程師下一步的排查指令，不能只說「加 Pipeline」。
+1. path_type 為 'max (Setup Time)'：建議減少邏輯深度、換大 driving cell。
+2. path_type 為 'min (Hold Time)'：**禁止**建議減少邏輯！必須建議增加 Delay。
+3. logic_depth 顯示「無法解析」：禁止推測深度。
+4. 資訊不足時直接寫「資訊不足，無法判斷」。
+5. 建議行動要具體，給下一步排查指令。
 """
 
     if confidence in ("low", "medium"):
         base += f"""
-⚠️  Parser 信心度為 {confidence}，提供原始片段供補充（數字以上方資料為準）：
+⚠️  Parser 信心度為 {confidence}，提供原始片段供補充：
 {chunked_report}"""
 
     base += """
 
-請**嚴格**依照以下格式輸出，每個 ## 標題必須完整出現：
+請**嚴格**依照以下格式輸出：
 
 ## 🔍 Report 總覽
-## ⚠️ 違規路徑分析 (標明 Setup 或 Hold 違規，依邏輯深度合理推論)
+## ⚠️ 違規路徑分析
 ## ✅ 通過路徑
 ## 🧠 新人必知觀念
 1. **Slack**：
 2. **Startpoint / Endpoint**：
 3. **Clock Skew**：
-## 🛠️ 建議行動 (給出具體的下一步排查動作)
+## 🛠️ 建議行動
 """
     return base
 
@@ -338,6 +403,7 @@ def parse_sta_report(report_path: str):
     table = Table(title="📊 Parser 萃取結果", style="cyan")
     table.add_column("項目", style="bold")
     table.add_column("數值")
+    table.add_row("格式", structured_data.get("format", "unknown"))
     table.add_row("設計名稱", structured_data.get("design") or "未偵測到")
     table.add_row("總路徑數", str(structured_data.get("total_paths", 0)))
     table.add_row("違規路徑", f"[red]{structured_data.get('violated_count', 0)}[/red]")
@@ -355,7 +421,8 @@ def parse_sta_report(report_path: str):
         console.print(f"[yellow]⚠️  {warning}[/yellow]")
 
     console.print("[blue]✂️  智能截取關鍵段落...[/blue]")
-    chunked = smart_chunk(report_content)
+    fmt = structured_data.get("format", "unknown")
+    chunked = smart_chunk(report_content, fmt)
 
     console.print("[blue]🤖 送入 LLM 進行語意分析...[/blue]")
     try:
