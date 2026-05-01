@@ -125,11 +125,10 @@ echo "GROQ_API_KEY=your_key_here" > .env
 ## 📍 目前限制 
 
 - ❗ **單檔處理**：目前一次僅支援單份 report 解析[cite: 1]。
-- ❗ **格式依賴**：目前的邏輯深度計算基於標準 cell 命名格式，非標準格式可能導致計數偏移[cite: 3]。
-- ❗ **工具整合**：尚未直接與 EDA 工具 (如 OpenROAD/Yosys) 的 API 或資料庫連動[cite: 1]。
+- ⚠️ **格式依賴**：目前支援 PrimeTime 與 OpenROAD 兩種格式（v7 新增），其他 EDA 工具格式尚未驗證。
+- ⚠️ **工具整合**：已透過 Docker 運行 OpenROAD 產生真實 STA report 並驗證通過；尚未整合進 CI/CD 流程。
 
 ---
-
 ## 👤 關於作者
 
 楊元蓁 (Price Yang) ｜ 中原大學 工業與系統工程學系 & 建築學系 雙主修[cite: 1]
