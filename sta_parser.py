@@ -92,7 +92,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ChipMentor STA Report Analyzer")
     parser.add_argument("report", help="STA report 檔案路徑")
     parser.add_argument("--mode", default="onboarding",
-                        choices=["onboarding"],  # 之後加 role, summary
                         help="分析模式（預設：onboarding）")
     args = parser.parse_args()
     parse_sta_report(args.report, args.mode)
