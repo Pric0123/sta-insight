@@ -77,6 +77,12 @@ PATH 1 - VIOLATED
 
 ---
 
+## 🌐 線上 Demo
+
+**https://chipmentor.streamlit.app/**
+
+---
+
 ## 🚀 快速開始
 
 ### 環境需求
