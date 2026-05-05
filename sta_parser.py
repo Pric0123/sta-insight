@@ -2,135 +2,132 @@ import os
 import re
 import sys
 import time
+import json
 import argparse
 from groq import Groq
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
+from core.parser import extract_paths, smart_chunk, read_report
 from roles.prompts import ROLE_PROMPTS
 from roles.summary import generate_summary_prompt
+from core.prompts.onboarding import build_prompt
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 console = Console()
 
-def extract_facts(report_content):
-    facts = {}
-    pt_violated = re.findall(r'slack \(VIOLATED\)\s*:\s*(-[\d.]+)\s*ns', report_content)
-    pt_met = re.findall(r'slack \(MET\)\s*:\s*([\d.]+)\s*ns', report_content)
-    or_violated = re.findall(r'(-[\d.]+)\s+slack \(VIOLATED\)', report_content)
-    or_met = re.findall(r'([\d.]+)\s+slack \(MET\)', report_content)
-    facts["violated_slacks"] = pt_violated + or_violated
-    facts["met_slacks"] = pt_met + or_met
-    startpoints = re.findall(r'Startpoint[:\s]+(.+)', report_content)
-    endpoints = re.findall(r'Endpoint[:\s]+(.+)', report_content)
-    design = re.search(r'Design:\s*(\S+)', report_content)
-    top = re.search(r'Top:\s*(\S+)', report_content)
-    facts["startpoints"] = [s.strip() for s in startpoints]
-    facts["endpoints"] = [s.strip() for s in endpoints]
-    facts["design_name"] = design.group(1) if design else (top.group(1) if top else "Unknown")
-    facts["total_paths"] = len(facts["violated_slacks"]) + len(facts["met_slacks"])
-    facts["violated_count"] = len(facts["violated_slacks"])
-    facts["met_count"] = len(facts["met_slacks"])
-    return facts
+ROLE_LABELS = {
+    "newbie": "新人工程師",
+    "rtl": "RTL 工程師",
+    "backend": "後端工程師",
+    "verification": "驗證工程師",
+    "pm": "專案經理"
+}
 
-def call_llm_with_retry(client, prompt, max_retries=3):
+def call_llm(prompt, role="newbie", max_retries=3):
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        console.print("[red]錯誤：找不到 GROQ_API_KEY[/red]")
+        sys.exit(1)
+    client = Groq(api_key=api_key)
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
                 timeout=30
             )
-            return response.choices[0].message.content
+            result = response.choices[0].message.content
+            if role == "newbie":
+                required = ["Report 總覽", "違規路徑", "通過路徑", "新人必知觀念", "建議行動"]
+                missing = [k for k in required if k not in result]
+                if missing and attempt < max_retries - 1:
+                    console.print(f"[yellow]輸出缺少段落 {missing}，重試...[/yellow]")
+                    time.sleep(2)
+                    continue
+            return result
         except Exception as e:
-            if attempt < max_retries - 1:
-                wait = 2 ** attempt
-                console.print(f"[yellow]API 錯誤，{wait} 秒後重試（第 {attempt+1} 次）：{e}[/yellow]")
+            err = str(e)
+            if "429" in err or "rate_limit" in err.lower():
+                wait = (attempt + 1) * 10
+                console.print(f"[yellow]Rate limit，等待 {wait} 秒...[/yellow]")
                 time.sleep(wait)
+            elif attempt < max_retries - 1:
+                console.print(f"[yellow]第 {attempt+1} 次失敗，重試...[/yellow]")
+                time.sleep(3)
             else:
-                raise e
+                console.print(f"[red]API 錯誤：{e}[/red]")
+                sys.exit(1)
+
+def print_facts(data):
+    console.print(f"[cyan]設計名稱：{data['design'] or 'Unknown'}[/cyan]")
+    console.print(f"[cyan]格式：{data['format']}  總路徑：{data['total_paths']}  violated：{data['violated_count']}  met：{data['met_count']}[/cyan]")
+    if data["parse_warnings"]:
+        for w in data["parse_warnings"]:
+            console.print(f"[yellow]⚠️  {w}[/yellow]")
+    if data["violated_count"] == 0:
+        console.print("[green]✅ 所有路徑通過 timing 檢查！[/green]")
+    else:
+        worst = min(p["slack_ns"] for p in data["violated_paths"]) if data["violated_paths"] else "N/A"
+        console.print(f"[red]⚠️ 發現 {data['violated_count']} 條違規路徑，最嚴重：{worst} ns[/red]")
 
 def parse_sta_report(report_path, role="newbie", summary=False):
     if not os.path.exists(report_path):
         console.print(f"[red]錯誤：找不到檔案 {report_path}[/red]")
         sys.exit(1)
 
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        console.print("[red]錯誤：找不到 GROQ_API_KEY，請確認 .env 檔案存在[/red]")
-        sys.exit(1)
+    report_content = read_report(report_path)
+    data = extract_paths(report_content)
+    print_facts(data)
 
-    with open(report_path, "r") as f:
-        report_content = f.read()
-
-    facts = extract_facts(report_content)
-
-    role_labels = {
-        "newbie": "新人工程師",
-        "rtl": "RTL 工程師",
-        "backend": "後端工程師",
-        "verification": "驗證工程師",
-        "pm": "專案經理"
-    }
-
-    console.print(f"[cyan]設計名稱：{facts['design_name']}[/cyan]")
-    console.print(f"[cyan]總路徑數：{facts['total_paths']}  violated：{facts['violated_count']}  met：{facts['met_count']}[/cyan]")
-
-    if facts["violated_count"] == 0:
-        console.print("[green]✅ 所有路徑通過 timing 檢查！[/green]")
-    else:
-        console.print(f"[red]⚠️ 發現 {facts['violated_count']} 條違規路徑，最嚴重：{min(facts['violated_slacks'])} ns[/red]")
-
-    client = Groq(api_key=api_key)
+    chunked = smart_chunk(report_content, data["format"])
 
     if summary:
+        facts_for_summary = {
+            "design_name": data["design"] or "Unknown",
+            "total_paths": data["total_paths"],
+            "violated_count": data["violated_count"],
+            "met_count": data["met_count"],
+            "violated_slacks": [str(p["slack_ns"]) for p in data["violated_paths"]],
+            "met_slacks": [str(p["slack_ns"]) for p in data["met_paths"]],
+            "startpoints": [p["startpoint"] for p in data["violated_paths"]],
+            "endpoints": [p["endpoint"] for p in data["violated_paths"]],
+        }
         console.print("\n[blue]🔄 正在產生管理層週報...[/blue]\n")
-        prompt = generate_summary_prompt(facts)
-        try:
-            result = call_llm_with_retry(client, prompt)
-            console.print(Panel(result, title="📊 設計狀態週報", style="bold yellow"))
-        except Exception as e:
-            console.print(f"[red]API 錯誤：{e}[/red]")
-            sys.exit(1)
+        prompt = generate_summary_prompt(facts_for_summary)
+        result = call_llm(prompt, role="pm")
+        console.print(Panel(result, title="📊 設計狀態週報", style="bold yellow"))
+        return
+
+    if role == "newbie":
+        console.print(f"\n[blue]🔄 正在以「新人工程師」視角分析...[/blue]\n")
+        prompt = build_prompt(data, chunked)
     else:
         if role not in ROLE_PROMPTS:
-            console.print(f"[red]錯誤：未知角色 {role}，可用：{list(ROLE_PROMPTS.keys())}[/red]")
+            console.print(f"[red]未知角色：{role}[/red]")
             sys.exit(1)
-
-        console.print(f"[cyan]輸出角色：{role_labels.get(role, role)}[/cyan]")
-        console.print(f"\n[blue]🔄 正在以「{role_labels.get(role, role)}」視角分析...[/blue]\n")
-
+        console.print(f"\n[blue]🔄 正在以「{ROLE_LABELS[role]}」視角分析...[/blue]\n")
         facts_summary = f"""
-設計名稱：{facts['design_name']}
-總路徑數：{facts['total_paths']}
-違規路徑數：{facts['violated_count']}，slack 值：{facts['violated_slacks']}
-通過路徑數：{facts['met_count']}，slack 值：{facts['met_slacks']}
-Startpoints：{facts['startpoints'][:5]}
-Endpoints：{facts['endpoints'][:5]}
+設計名稱：{data['design'] or 'Unknown'}
+違規路徑數：{data['violated_count']}
+violated slacks：{[p['slack_ns'] for p in data['violated_paths']]}
+met slacks：{[p['slack_ns'] for p in data['met_paths']]}
+startpoints：{[p['startpoint'] for p in data['violated_paths'][:5]]}
+endpoints：{[p['endpoint'] for p in data['violated_paths'][:5]]}
 """
-        role_prompt = ROLE_PROMPTS[role]
-        prompt = f"""{role_prompt}
+        prompt = f"{ROLE_PROMPTS[role]}\n\n確定事實：{facts_summary}\n\nReport 原文：{chunked}"
 
-以下是從 STA report 提取的確定事實（數字絕對正確，請勿更改）：
-{facts_summary}
-
-完整 STA report 原文（節錄）：
-{report_content[:3000]}
-"""
-        try:
-            result = call_llm_with_retry(client, prompt)
-            title = f"📋 ChipMentor — {role_labels.get(role, role)}視角"
-            console.print(Panel(Markdown(result), title=title, style="bold green"))
-        except Exception as e:
-            console.print(f"[red]API 錯誤：{e}[/red]")
-            sys.exit(1)
+    result = call_llm(prompt, role=role)
+    title = f"📋 ChipMentor — {ROLE_LABELS.get(role, role)}視角"
+    console.print(Panel(Markdown(result), title=title, style="bold green"))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ChipMentor - IC Design STA Report Analyzer")
     parser.add_argument("report", help="STA report 檔案路徑")
     parser.add_argument("--role", default="newbie",
-                        choices=["newbie", "rtl", "backend", "verification", "pm"],
+                        choices=list(ROLE_LABELS.keys()),
                         help="輸出角色（預設：newbie）")
     parser.add_argument("--summary", action="store_true",
                         help="產生管理層週報")
