@@ -7,7 +7,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.parser import extract_paths, count_logic_depth
-from core.llm import validate_output
+from core.parser import extract_paths  # validate_output moved to sta_parser.py
 
 # ─────────────────────────────────────────
 # 測試用假資料
