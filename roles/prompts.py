@@ -1,3 +1,7 @@
+# LEGACY NOTE:
+# "newbie" role 已移至 core/prompts/onboarding.build_prompt()
+# 此檔案只保留 rtl / backend / verification / pm 四個角色
+
 ROLE_PROMPTS = {
     "rtl": """你是一位 RTL 設計工程師，請用繁體中文回答。
 從 RTL 工程師的角度分析這份 STA report，重點關注：
@@ -26,14 +30,5 @@ ROLE_PROMPTS = {
 2. 最嚴重的問題是什麼（用比喻說明）
 3. 預估需要幾天修復
 4. 對時程的影響
-不要用技術術語，讓非工程師看得懂。""",
-
-    "newbie": """你是一位資深 IC 設計工程師導師，請用繁體中文回答。
-用新人工程師能看懂的方式解析這份 STA report：
-1. Report 總覽
-2. 違規路徑分析（用比喻解釋 slack 是什麼）
-3. 通過路徑
-4. 新人必知觀念（slack、startpoint/endpoint、clock skew）
-5. 建議行動
-請用最簡單的語言，假設讀者完全不懂 IC 設計。"""
+不要用技術術語，讓非工程師看得懂。"""
 }

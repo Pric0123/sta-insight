@@ -2,7 +2,6 @@ import os
 import re
 import sys
 import time
-import json
 import argparse
 from groq import Groq
 from dotenv import load_dotenv
@@ -25,6 +24,15 @@ ROLE_LABELS = {
     "pm": "專案經理"
 }
 
+NEWBIE_REQUIRED = ["Report 總覽", "違規路徑", "通過路徑", "新人必知觀念", "建議行動"]
+
+def validate_newbie_output(text: str) -> list:
+    """只對 newbie role 使用，用 regex 確認是標題行"""
+    return [
+        kw for kw in NEWBIE_REQUIRED
+        if not re.search(r"^#{1,3}\s*.*" + re.escape(kw), text, re.MULTILINE)
+    ]
+
 def call_llm(prompt, role="newbie", max_retries=3):
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
@@ -41,8 +49,7 @@ def call_llm(prompt, role="newbie", max_retries=3):
             )
             result = response.choices[0].message.content
             if role == "newbie":
-                required = ["Report 總覽", "違規路徑", "通過路徑", "新人必知觀念", "建議行動"]
-                missing = [k for k in required if k not in result]
+                missing = validate_newbie_output(result)
                 if missing and attempt < max_retries - 1:
                     console.print(f"[yellow]輸出缺少段落 {missing}，重試...[/yellow]")
                     time.sleep(2)
@@ -81,7 +88,6 @@ def parse_sta_report(report_path, role="newbie", summary=False):
     report_content = read_report(report_path)
     data = extract_paths(report_content)
     print_facts(data)
-
     chunked = smart_chunk(report_content, data["format"])
 
     if summary:
