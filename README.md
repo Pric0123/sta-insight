@@ -26,30 +26,30 @@
 
 ## 🎯 為什麼做這個？
 
-在 IC 設計團隊裡，一份 5 萬行的 STA report，**資深工程師看 10 秒就知道哪裡要改，新人看 3 個月還在學語彙**[cite: 1]。Log 變成了「部落方言」，知識傳承靠肉身在旁邊看，老人離職就斷層[cite: 1]。
+在 IC 設計團隊裡，一份 5 萬行的 STA report，**資深工程師看 10 秒就知道哪裡要改，新人看 3 個月還在學語彙**。Log 變成了「部落方言」，知識傳承靠肉身在旁邊看，老人離職就斷層。
 
-**STA Insight 透過「確定性解析 (Deterministic Parsing) + 大語言模型 (LLM)」的混合架構，精準提取關鍵數據並轉譯為易讀的知識卡片，解決 Log 密碼化與知識部落化的病灶**[cite: 1, 3]。
+**STA Insight 透過「確定性解析 (Deterministic Parsing) + 大語言模型 (LLM)」的混合架構，精準提取關鍵數據並轉譯為易讀的知識卡片，解決 Log 密碼化與知識部落化的病灶**。
 
 ---
 
 ## 🔭 設計框架：觀點 → 策略 → 手法 → 驗證
 
 ### 觀點 (Perspective)
-EDA 流程產生的所有資料，都是寫給資深工程師看的[cite: 1]。我們需要一個 **Audience-aware (分眾感知)** 的翻譯層[cite: 1]。
+EDA 流程產生的所有資料，都是寫給資深工程師看的。我們需要一個 **Audience-aware (分眾感知)** 的翻譯層。
 
 ### 策略 (Strategy)
-建立 **Deterministic Parser + LLM Hybrid** 架構[cite: 3]。利用程式邏輯確保數據 數據準確性：Deterministic Parser 在 PrimeTime / OpenROAD 格式測試案例上達到 100% 正確率（n=4 paths）。大型 report 驗證尚在進行中。100% 準確，利用 AI 進行人性化翻譯並排除幻覺風險[cite: 3]。
+建立 **Deterministic Parser + LLM Hybrid** 架構。利用程式邏輯確保數據 100% 準確，利用 AI 進行人性化翻譯並排除幻覺風險。
 
 ### 手法 (Method)
-1. **區塊化解析 (Block Parsing)**：將大型報告切割成獨立 Path 區塊，精準提取 Slack、Path Group 與 Setup/Hold 類型[cite: 3]。
-2. **邏輯深度計算 (Logic Depth Calculation)**：自動統計 Standard Cell 數量，量化路徑複雜度以輔助診斷[cite: 3]。
-3. **防幻覺護欄 (Guardrails)**：在 Prompt Level 建立物理規則，防止 LLM 在 Setup/Hold 判斷上產生錯誤建議（例如：禁止在 Hold violation 時建議減少邏輯）[cite: 3]。
-4. **低溫控制 (Low Temp Inference)**：將推理溫度設為 `0.2`，確保輸出穩定嚴謹，減少模型發散[cite: 3]。
+1. **區塊化解析 (Block Parsing)**：將大型報告切割成獨立 Path 區塊，精準提取 Slack、Path Group 與 Setup/Hold 類型。
+2. **邏輯深度計算 (Logic Depth Calculation)**：自動統計 Standard Cell 數量，量化路徑複雜度以輔助診斷。
+3. **防幻覺護欄 (Guardrails)**：在 Prompt Level 建立物理規則，防止 LLM 在 Setup/Hold 判斷上產生錯誤建議（例如：禁止在 Hold violation 時建議減少邏輯）。
+4. **低溫控制 (Low Temp Inference)**：將推理溫度設為 `0.2`，確保輸出穩定嚴謹，減少模型發散。
 
 ### 驗證 (Validation)
-- ✅ **數據準確性**：對 sample report 的 Slack 與路徑數量能達到 100% 正確解析[cite: 1]。
-- ✅ **防幻覺測試**：能精確區分 Max/Min 路徑並根據邏輯深度給予對應的物理修正建議[cite: 3]。
-- 🚧 **擴展性測試**：針對 >1MB 大型 report 的效能優化與截斷策略驗證[cite: 1, 3]。
+- ✅ **數據準確性**：對 sample report 的 Slack 與路徑數量能達到 100% 正確解析。
+- ✅ **防幻覺測試**：能精確區分 Max/Min 路徑並根據邏輯深度給予對應的物理修正建議。
+- 🚧 **擴展性測試**：針對 >1MB 大型 report 的效能優化與截斷策略驗證。
 
 ---
 
@@ -80,9 +80,9 @@ PATH 1 - VIOLATED
 ## 🚀 快速開始
 
 ### 環境需求
-- Python 3.10+[cite: 1]
-- Linux / WSL2[cite: 1]
-- Groq API Key[cite: 1, 3]
+- Python 3.10+
+- Linux / WSL2
+- Groq API Key
 
 ### 安裝與執行
 ```bash
@@ -110,25 +110,25 @@ echo "GROQ_API_KEY=your_key_here" > .env
 
 | 層級 | 技術 |
 |---|---|
-| **解析引擎** | Regex-based Deterministic Block Parser[cite: 3] |
-| **推理核心** | Llama 3.3 70B (via Groq Cloud Inference)[cite: 1, 3] |
-| **防護機制** | Physical Rules Guardrails (Temperature=0.2)[cite: 3] |
-| **UI 渲染** | Rich (Terminal-based Knowledge Cards)[cite: 1, 3] |
+| **解析引擎** | Regex-based Deterministic Block Parser |
+| **推理核心** | Llama 3.3 70B (via Groq Cloud Inference) |
+| **防護機制** | Physical Rules Guardrails (Temperature=0.2) |
+| **UI 渲染** | Rich (Terminal-based Knowledge Cards) |
 
 ---
 
 ## 📍 目前限制 
 
-- ❗ **單檔處理**：目前一次僅支援單份 report 解析[cite: 1]。
+- ❗ **單檔處理**：目前一次僅支援單份 report 解析。
 - ⚠️ **格式依賴**：目前支援 PrimeTime 與 OpenROAD 兩種格式（v7 新增），其他 EDA 工具格式尚未驗證。
 - ⚠️ **工具整合**：已透過 Docker 運行 OpenROAD 產生真實 STA report 並驗證通過；尚未整合進 CI/CD 流程。
 
 ---
 ## 👤 關於作者
 
-楊元蓁 (Price Yang) ｜ 中原大學 工業與系統工程學系 & 建築學系 雙主修[cite: 1]
-📧 willyang2002@gmail.com[cite: 1]
-🐙 [@Pric0123](https://github.com/Pric0123)[cite: 1]
+楊元蓁 (Price Yang) ｜ 中原大學 工業與系統工程學系 & 建築學系 雙主修
+📧 willyang2002@gmail.com
+🐙 [@Pric0123](https://github.com/Pric0123)
 
 ---
 
