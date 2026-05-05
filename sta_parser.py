@@ -26,8 +26,10 @@ ROLE_LABELS = {
 
 NEWBIE_REQUIRED = ["Report 總覽", "違規路徑", "通過路徑", "新人必知觀念", "建議行動"]
 
+class STAParserError(Exception):
+    pass
+
 def validate_newbie_output(text: str) -> list:
-    """只對 newbie role 使用，用 regex 確認是標題行"""
     return [
         kw for kw in NEWBIE_REQUIRED
         if not re.search(r"^#{1,3}\s*.*" + re.escape(kw), text, re.MULTILINE)
@@ -36,9 +38,10 @@ def validate_newbie_output(text: str) -> list:
 def call_llm(prompt, role="newbie", max_retries=3):
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        console.print("[red]錯誤：找不到 GROQ_API_KEY[/red]")
-        sys.exit(1)
+        raise STAParserError("找不到 GROQ_API_KEY，請確認 .env 檔案存在")
+
     client = Groq(api_key=api_key)
+
     for attempt in range(max_retries):
         try:
             response = client.chat.completions.create(
@@ -47,14 +50,8 @@ def call_llm(prompt, role="newbie", max_retries=3):
                 temperature=0.2,
                 timeout=30
             )
-            result = response.choices[0].message.content
-            if role == "newbie":
-                missing = validate_newbie_output(result)
-                if missing and attempt < max_retries - 1:
-                    console.print(f"[yellow]輸出缺少段落 {missing}，重試...[/yellow]")
-                    time.sleep(2)
-                    continue
-            return result
+            return response.choices[0].message.content
+
         except Exception as e:
             err = str(e)
             if "429" in err or "rate_limit" in err.lower():
@@ -65,8 +62,7 @@ def call_llm(prompt, role="newbie", max_retries=3):
                 console.print(f"[yellow]第 {attempt+1} 次失敗，重試...[/yellow]")
                 time.sleep(3)
             else:
-                console.print(f"[red]API 錯誤：{e}[/red]")
-                sys.exit(1)
+                raise STAParserError(f"LLM API 錯誤（已重試 {max_retries} 次）：{e}")
 
 def print_facts(data):
     console.print(f"[cyan]設計名稱：{data['design'] or 'Unknown'}[/cyan]")
@@ -82,8 +78,7 @@ def print_facts(data):
 
 def parse_sta_report(report_path, role="newbie", summary=False):
     if not os.path.exists(report_path):
-        console.print(f"[red]錯誤：找不到檔案 {report_path}[/red]")
-        sys.exit(1)
+        raise STAParserError(f"找不到檔案：{report_path}")
 
     report_content = read_report(report_path)
     data = extract_paths(report_content)
@@ -105,6 +100,11 @@ def parse_sta_report(report_path, role="newbie", summary=False):
         prompt = generate_summary_prompt(facts_for_summary)
         result = call_llm(prompt, role="pm")
         console.print(Panel(result, title="📊 設計狀態週報", style="bold yellow"))
+
+        if role == "newbie":
+            missing = validate_newbie_output(result)
+            if missing:
+                console.print(f"[yellow]⚠️ 輸出缺少段落：{missing}（格式警告，非錯誤）[/yellow]")
         return
 
     if role == "newbie":
@@ -112,8 +112,7 @@ def parse_sta_report(report_path, role="newbie", summary=False):
         prompt = build_prompt(data, chunked)
     else:
         if role not in ROLE_PROMPTS:
-            console.print(f"[red]未知角色：{role}[/red]")
-            sys.exit(1)
+            raise STAParserError(f"未知角色：{role}，可用：{list(ROLE_PROMPTS.keys())}")
         console.print(f"\n[blue]🔄 正在以「{ROLE_LABELS[role]}」視角分析...[/blue]\n")
         facts_summary = f"""
 設計名稱：{data['design'] or 'Unknown'}
@@ -126,6 +125,12 @@ endpoints：{[p['endpoint'] for p in data['violated_paths'][:5]]}
         prompt = f"{ROLE_PROMPTS[role]}\n\n確定事實：{facts_summary}\n\nReport 原文：{chunked}"
 
     result = call_llm(prompt, role=role)
+
+    if role == "newbie":
+        missing = validate_newbie_output(result)
+        if missing:
+            console.print(f"[yellow]⚠️ 輸出缺少段落：{missing}（格式警告，非錯誤）[/yellow]")
+
     title = f"📋 ChipMentor — {ROLE_LABELS.get(role, role)}視角"
     console.print(Panel(Markdown(result), title=title, style="bold green"))
 
@@ -138,4 +143,9 @@ if __name__ == "__main__":
     parser.add_argument("--summary", action="store_true",
                         help="產生管理層週報")
     args = parser.parse_args()
-    parse_sta_report(args.report, args.role, args.summary)
+
+    try:
+        parse_sta_report(args.report, args.role, args.summary)
+    except STAParserError as e:
+        console.print(f"[red]錯誤：{e}[/red]")
+        sys.exit(1)
