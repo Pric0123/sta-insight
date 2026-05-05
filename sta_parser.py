@@ -9,6 +9,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
 from roles.prompts import ROLE_PROMPTS
+from roles.summary import generate_summary_prompt
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 console = Console()
@@ -50,7 +51,7 @@ def call_llm_with_retry(client, prompt, max_retries=3):
             else:
                 raise e
 
-def parse_sta_report(report_path, role="newbie"):
+def parse_sta_report(report_path, role="newbie", summary=False):
     if not os.path.exists(report_path):
         console.print(f"[red]錯誤：找不到檔案 {report_path}[/red]")
         sys.exit(1)
@@ -58,10 +59,6 @@ def parse_sta_report(report_path, role="newbie"):
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         console.print("[red]錯誤：找不到 GROQ_API_KEY，請確認 .env 檔案存在[/red]")
-        sys.exit(1)
-
-    if role not in ROLE_PROMPTS:
-        console.print(f"[red]錯誤：未知角色 {role}，可用角色：{list(ROLE_PROMPTS.keys())}[/red]")
         sys.exit(1)
 
     with open(report_path, "r") as f:
@@ -79,14 +76,32 @@ def parse_sta_report(report_path, role="newbie"):
 
     console.print(f"[cyan]設計名稱：{facts['design_name']}[/cyan]")
     console.print(f"[cyan]總路徑數：{facts['total_paths']}  violated：{facts['violated_count']}  met：{facts['met_count']}[/cyan]")
-    console.print(f"[cyan]輸出角色：{role_labels.get(role, role)}[/cyan]")
 
     if facts["violated_count"] == 0:
         console.print("[green]✅ 所有路徑通過 timing 檢查！[/green]")
     else:
         console.print(f"[red]⚠️ 發現 {facts['violated_count']} 條違規路徑，最嚴重：{min(facts['violated_slacks'])} ns[/red]")
 
-    facts_summary = f"""
+    client = Groq(api_key=api_key)
+
+    if summary:
+        console.print("\n[blue]🔄 正在產生管理層週報...[/blue]\n")
+        prompt = generate_summary_prompt(facts)
+        try:
+            result = call_llm_with_retry(client, prompt)
+            console.print(Panel(result, title="📊 設計狀態週報", style="bold yellow"))
+        except Exception as e:
+            console.print(f"[red]API 錯誤：{e}[/red]")
+            sys.exit(1)
+    else:
+        if role not in ROLE_PROMPTS:
+            console.print(f"[red]錯誤：未知角色 {role}，可用：{list(ROLE_PROMPTS.keys())}[/red]")
+            sys.exit(1)
+
+        console.print(f"[cyan]輸出角色：{role_labels.get(role, role)}[/cyan]")
+        console.print(f"\n[blue]🔄 正在以「{role_labels.get(role, role)}」視角分析...[/blue]\n")
+
+        facts_summary = f"""
 設計名稱：{facts['design_name']}
 總路徑數：{facts['total_paths']}
 違規路徑數：{facts['violated_count']}，slack 值：{facts['violated_slacks']}
@@ -94,9 +109,8 @@ def parse_sta_report(report_path, role="newbie"):
 Startpoints：{facts['startpoints'][:5]}
 Endpoints：{facts['endpoints'][:5]}
 """
-
-    role_prompt = ROLE_PROMPTS[role]
-    prompt = f"""{role_prompt}
+        role_prompt = ROLE_PROMPTS[role]
+        prompt = f"""{role_prompt}
 
 以下是從 STA report 提取的確定事實（數字絕對正確，請勿更改）：
 {facts_summary}
@@ -104,17 +118,13 @@ Endpoints：{facts['endpoints'][:5]}
 完整 STA report 原文（節錄）：
 {report_content[:3000]}
 """
-
-    client = Groq(api_key=api_key)
-    console.print(f"\n[blue]🔄 正在以「{role_labels.get(role, role)}」視角分析...[/blue]\n")
-
-    try:
-        result = call_llm_with_retry(client, prompt)
-        title = f"📋 ChipMentor — {role_labels.get(role, role)}視角"
-        console.print(Panel(Markdown(result), title=title, style="bold green"))
-    except Exception as e:
-        console.print(f"[red]API 錯誤（已重試 3 次）：{e}[/red]")
-        sys.exit(1)
+        try:
+            result = call_llm_with_retry(client, prompt)
+            title = f"📋 ChipMentor — {role_labels.get(role, role)}視角"
+            console.print(Panel(Markdown(result), title=title, style="bold green"))
+        except Exception as e:
+            console.print(f"[red]API 錯誤：{e}[/red]")
+            sys.exit(1)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ChipMentor - IC Design STA Report Analyzer")
@@ -122,5 +132,7 @@ if __name__ == "__main__":
     parser.add_argument("--role", default="newbie",
                         choices=["newbie", "rtl", "backend", "verification", "pm"],
                         help="輸出角色（預設：newbie）")
+    parser.add_argument("--summary", action="store_true",
+                        help="產生管理層週報")
     args = parser.parse_args()
-    parse_sta_report(args.report, args.role)
+    parse_sta_report(args.report, args.role, args.summary)
