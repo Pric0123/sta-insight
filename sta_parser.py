@@ -1,99 +1,98 @@
-"""
-sta_parser.py
-主程式：串接 core/ 各模組，處理 CLI 參數。
-"""
 import os
+import re
 import sys
-from pathlib import Path
+from groq import Groq
 from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
 from rich.markdown import Markdown
-from rich.table import Table
 
-from core.parser import read_report, extract_paths, smart_chunk
-from core.llm import call_llm
-from core.prompts.onboarding import build_prompt
-
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 console = Console()
 
-def load_env():
-    candidates = [
-        Path(__file__).parent / ".env",
-        Path.cwd() / ".env",
-        Path.home() / "sta-insight" / ".env",
-    ]
-    for path in candidates:
-        if path.exists():
-            load_dotenv(dotenv_path=path)
-            return str(path)
-    return None
+def extract_facts(report_content):
+    facts = {}
+    violated = re.findall(r'slack \(VIOLATED\)\s*:\s*(-[\d.]+)\s*ns', report_content)
+    met = re.findall(r'slack \(MET\)\s*:\s*([\d.]+)\s*ns', report_content)
+    startpoints = re.findall(r'Startpoint\s*:\s*(.+)', report_content)
+    endpoints = re.findall(r'Endpoint\s*:\s*(.+)', report_content)
+    design = re.search(r'Design:\s*(\S+)', report_content)
+    facts["violated_slacks"] = violated
+    facts["met_slacks"] = met
+    facts["startpoints"] = [s.strip() for s in startpoints]
+    facts["endpoints"] = [s.strip() for s in endpoints]
+    facts["design_name"] = design.group(1) if design else "Unknown"
+    facts["total_paths"] = len(violated) + len(met)
+    facts["violated_count"] = len(violated)
+    facts["met_count"] = len(met)
+    return facts
 
-load_env()
-
-def parse_sta_report(report_path: str, mode: str = "onboarding"):
+def parse_sta_report(report_path):
     if not os.path.exists(report_path):
-        console.print(f"[red]❌ 找不到檔案：{report_path}[/red]")
+        console.print(f"[red]錯誤：找不到檔案 {report_path}[/red]")
         sys.exit(1)
 
-    console.print(f"[blue]📂 讀取：{report_path}[/blue]")
-    report_content = read_report(report_path)
-
-    if len(report_content.strip()) == 0:
-        console.print("[red]❌ 檔案是空的[/red]")
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        console.print("[red]錯誤：找不到 GROQ_API_KEY，請確認 .env 檔案存在[/red]")
         sys.exit(1)
 
-    console.print("[blue]🔍 解析報告結構 (Deterministic Parser)...[/blue]")
-    structured_data = extract_paths(report_content)
+    with open(report_path, "r") as f:
+        report_content = f.read()
 
-    table = Table(title="📊 Parser 萃取結果", style="cyan")
-    table.add_column("項目", style="bold")
-    table.add_column("數值")
-    table.add_row("格式", structured_data.get("format", "unknown"))
-    table.add_row("設計名稱", structured_data.get("design") or "未偵測到")
-    table.add_row("總路徑數", str(structured_data.get("total_paths", 0)))
-    table.add_row("違規路徑", f"[red]{structured_data.get('violated_count', 0)}[/red]")
-    table.add_row("通過路徑", f"[green]{structured_data.get('met_count', 0)}[/green]")
-    table.add_row("解析信心度", structured_data.get("parse_confidence", "unknown"))
-    table.add_row("模式", mode)
+    facts = extract_facts(report_content)
 
-    if structured_data.get("violated_paths"):
-        first = structured_data["violated_paths"][0]
-        table.add_row("Path 1 類型", first.get("path_type", "未知"))
-        table.add_row("Path 1 深度", first.get("logic_depth_display", "未知"))
+    console.print(f"[cyan]設計名稱：{facts['design_name']}[/cyan]")
+    console.print(f"[cyan]總路徑數：{facts['total_paths']}  violated：{facts['violated_count']}  met：{facts['met_count']}[/cyan]")
 
-    console.print(table)
-
-    for warning in structured_data.get("parse_warnings", []):
-        console.print(f"[yellow]⚠️  {warning}[/yellow]")
-
-    console.print("[blue]✂️  智能截取關鍵段落...[/blue]")
-    fmt = structured_data.get("format", "unknown")
-    chunked = smart_chunk(report_content, fmt)
-
-    # 根據 mode 選擇 prompt
-    if mode == "onboarding":
-        prompt = build_prompt(structured_data, chunked)
+    if facts["violated_count"] == 0:
+        console.print("[green]✅ 所有路徑通過 timing 檢查！[/green]")
     else:
-        console.print(f"[red]❌ 未知模式：{mode}，目前支援：onboarding[/red]")
-        sys.exit(1)
+        console.print(f"[red]⚠️ 發現 {facts['violated_count']} 條違規路徑，最嚴重：{min(facts['violated_slacks'])} ns[/red]")
 
-    console.print(f"[blue]🤖 送入 LLM（模式：{mode}）...[/blue]")
+    facts_summary = f"""
+設計名稱：{facts['design_name']}
+總路徑數：{facts['total_paths']}
+違規路徑數：{facts['violated_count']}，slack 值：{facts['violated_slacks']}
+通過路徑數：{facts['met_count']}，slack 值：{facts['met_slacks']}
+Startpoints：{facts['startpoints']}
+Endpoints：{facts['endpoints']}
+"""
+
+    prompt = f"""你是一位資深 IC 設計工程師，請用繁體中文回答。
+
+以下是從 STA report 提取的確定事實（數字絕對正確，請勿更改）：
+{facts_summary}
+
+完整 STA report 原文：
+{report_content}
+
+請根據以上資訊，用新人工程師能看懂的方式輸出：
+
+## 🔍 Report 總覽
+## ⚠️ 違規路徑分析（請使用上方提供的確定數字）
+## ✅ 通過路徑
+## 🧠 新人必知觀念（解釋 slack、startpoint/endpoint、clock skew）
+## 🛠️ 建議行動
+"""
+
+    client = Groq(api_key=api_key)
+    console.print("\n[blue]🔄 正在分析...[/blue]\n")
+
     try:
-        result = call_llm(prompt)
-    except Exception as e:
-        console.print(f"[red]❌ 分析失敗：{e}[/red]")
-        sys.exit(1)
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            timeout=30
+        )
+        result = response.choices[0].message.content
+        console.print(Panel(Markdown(result), title="📋 ChipMentor 知識卡片", style="bold green"))
 
-    console.print(Panel(Markdown(result), title=f"📋 ChipMentor 知識卡片（{mode}）", style="bold green", expand=False))
+    except Exception as e:
+        console.print(f"[red]API 錯誤：{e}[/red]")
+        console.print("[yellow]提示：請檢查網路連線或 API key 是否有效[/yellow]")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description="ChipMentor STA Report Analyzer")
-    parser.add_argument("reports", nargs="+", help="STA report 檔案路徑（可多個）")
-    parser.add_argument("--mode", default="onboarding",
-                        help="分析模式（預設：onboarding）")
-    args = parser.parse_args()
-    for report in args.reports:
-        print(f"\n{'='*60}")
-        parse_sta_report(report, args.mode)
+    report_path = sys.argv[1] if len(sys.argv) > 1 else "sta_report_sample.txt"
+    parse_sta_report(report_path)

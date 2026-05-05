@@ -1,0 +1,62 @@
+[WARNING STA-0168] unknown field nets.
+Startpoint: dpath.a_reg.out[8]$_DFFE_PP_
+            (rising edge-triggered flip-flop clocked by core_clock)
+Endpoint: dpath.a_reg.out[11]$_DFFE_PP_
+          (rising edge-triggered flip-flop clocked by core_clock)
+Path Group: core_clock
+Path Type: max
+
+Fanout      Cap     Slew    Delay     Time   Description
+---------------------------------------------------------------------------------
+                   0.000    0.000    0.000   clock core_clock (rise edge)
+                            0.000    0.000   clock network delay (ideal)
+                   0.000    0.000    0.000 ^ dpath.a_reg.out[8]$_DFFE_PP_/CLK (DFFHQNx1_ASAP7_75t_R)
+     2    1.302   16.481   33.578   33.578 v dpath.a_reg.out[8]$_DFFE_PP_/QN (DFFHQNx1_ASAP7_75t_R)
+                  16.481    0.000   33.578 v _339_/A (INVx1_ASAP7_75t_R)
+     2    1.784   14.814   11.595   45.173 ^ _339_/Y (INVx1_ASAP7_75t_R)
+                  14.814    0.000   45.173 ^ _628_/A (HAxp5_ASAP7_75t_R)
+     4    2.481   31.355   41.484   86.657 v _628_/SN (HAxp5_ASAP7_75t_R)
+                  31.355    0.000   86.657 v _371_/B (OR2x2_ASAP7_75t_R)
+     2    1.349    8.443   23.205  109.862 v _371_/Y (OR2x2_ASAP7_75t_R)
+                   8.443    0.000  109.862 v _372_/A (OR4x1_ASAP7_75t_R)
+     2    1.265   12.778   24.600  134.462 v _372_/Y (OR4x1_ASAP7_75t_R)
+                  12.778    0.000  134.462 v _373_/B (OR2x2_ASAP7_75t_R)
+     1    0.541    5.955   17.029  151.492 v _373_/Y (OR2x2_ASAP7_75t_R)
+                   5.955    0.000  151.492 v _379_/A1 (OA211x2_ASAP7_75t_R)
+     3    2.391   13.672   24.382  175.874 v _379_/Y (OA211x2_ASAP7_75t_R)
+                  13.672    0.000  175.874 v _442_/A1 (OA21x2_ASAP7_75t_R)
+     2    1.340    7.907   18.691  194.565 v _442_/Y (OA21x2_ASAP7_75t_R)
+                   7.907    0.000  194.565 v _443_/C (OR3x1_ASAP7_75t_R)
+     2    1.768   14.195   23.798  218.363 v _443_/Y (OR3x1_ASAP7_75t_R)
+                  14.195    0.000  218.363 v _640_/A (HAxp5_ASAP7_75t_R)
+     2    1.387   20.330   29.668  248.030 v _640_/SN (HAxp5_ASAP7_75t_R)
+                  20.330    0.000  248.030 v place153/A (BUFx3_ASAP7_75t_R)
+     4    2.684    8.250   18.340  266.370 v place153/Y (BUFx3_ASAP7_75t_R)
+                   8.250    0.000  266.370 v _538_/B (OR3x1_ASAP7_75t_R)
+     1    1.379   12.160   22.247  288.618 v _538_/Y (OR3x1_ASAP7_75t_R)
+                  12.160    0.000  288.618 v _539_/B (OAI21x1_ASAP7_75t_R)
+     3    1.928   25.329    8.337  296.955 ^ _539_/Y (OAI21x1_ASAP7_75t_R)
+                  25.329    0.000  296.955 ^ _540_/B (OR3x1_ASAP7_75t_R)
+     1    0.684    7.052   14.715  311.669 ^ _540_/Y (OR3x1_ASAP7_75t_R)
+                   7.052    0.000  311.669 ^ _541_/A (INVx1_ASAP7_75t_R)
+     1    0.430    4.520    4.459  316.128 v _541_/Y (INVx1_ASAP7_75t_R)
+                   4.520    0.000  316.128 v _542_/B (OA211x2_ASAP7_75t_R)
+     1    0.652    9.265   23.844  339.972 v _542_/Y (OA211x2_ASAP7_75t_R)
+                   9.265    0.000  339.972 v _547_/A (OR3x1_ASAP7_75t_R)
+     1    0.619    8.080   18.692  358.664 v _547_/Y (OR3x1_ASAP7_75t_R)
+                   8.080    0.000  358.664 v dpath.a_reg.out[11]$_DFFE_PP_/D (DFFHQNx1_ASAP7_75t_R)
+                                   358.664   data arrival time
+
+                   0.000  310.000  310.000   clock core_clock (rise edge)
+                            0.000  310.000   clock network delay (ideal)
+                            0.000  310.000   clock reconvergence pessimism
+                                   310.000 ^ dpath.a_reg.out[11]$_DFFE_PP_/CLK (DFFHQNx1_ASAP7_75t_R)
+                           -8.974  301.026   library setup time
+                                   301.026   data required time
+---------------------------------------------------------------------------------
+                                   301.026   data required time
+                                  -358.664   data arrival time
+---------------------------------------------------------------------------------
+                                   -57.638   slack (VIOLATED)
+
+
