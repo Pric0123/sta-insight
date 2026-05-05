@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import time
 from groq import Groq
 from dotenv import load_dotenv
 from rich.console import Console
@@ -12,20 +13,48 @@ console = Console()
 
 def extract_facts(report_content):
     facts = {}
-    violated = re.findall(r'slack \(VIOLATED\)\s*:\s*(-[\d.]+)\s*ns', report_content)
-    met = re.findall(r'slack \(MET\)\s*:\s*([\d.]+)\s*ns', report_content)
-    startpoints = re.findall(r'Startpoint\s*:\s*(.+)', report_content)
-    endpoints = re.findall(r'Endpoint\s*:\s*(.+)', report_content)
+
+    # PrimeTime 格式: slack (VIOLATED) : -0.347 ns
+    pt_violated = re.findall(r'slack \(VIOLATED\)\s*:\s*(-[\d.]+)\s*ns', report_content)
+    pt_met = re.findall(r'slack \(MET\)\s*:\s*([\d.]+)\s*ns', report_content)
+
+    # OpenROAD 格式: -57.638   slack (VIOLATED)
+    or_violated = re.findall(r'(-[\d.]+)\s+slack \(VIOLATED\)', report_content)
+    or_met = re.findall(r'([\d.]+)\s+slack \(MET\)', report_content)
+
+    facts["violated_slacks"] = pt_violated + or_violated
+    facts["met_slacks"] = pt_met + or_met
+
+    startpoints = re.findall(r'Startpoint:\s*(.+)', report_content)
+    endpoints = re.findall(r'Endpoint:\s*(.+)', report_content)
+
     design = re.search(r'Design:\s*(\S+)', report_content)
-    facts["violated_slacks"] = violated
-    facts["met_slacks"] = met
+    top = re.search(r'Top:\s*(\S+)', report_content)
+
     facts["startpoints"] = [s.strip() for s in startpoints]
     facts["endpoints"] = [s.strip() for s in endpoints]
-    facts["design_name"] = design.group(1) if design else "Unknown"
-    facts["total_paths"] = len(violated) + len(met)
-    facts["violated_count"] = len(violated)
-    facts["met_count"] = len(met)
+    facts["design_name"] = design.group(1) if design else (top.group(1) if top else "Unknown")
+    facts["total_paths"] = len(facts["violated_slacks"]) + len(facts["met_slacks"])
+    facts["violated_count"] = len(facts["violated_slacks"])
+    facts["met_count"] = len(facts["met_slacks"])
     return facts
+
+def call_llm_with_retry(client, prompt, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                timeout=30
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                console.print(f"[yellow]API 錯誤，{wait} 秒後重試（第 {attempt+1} 次）：{e}[/yellow]")
+                time.sleep(wait)
+            else:
+                raise e
 
 def parse_sta_report(report_path):
     if not os.path.exists(report_path):
@@ -55,8 +84,8 @@ def parse_sta_report(report_path):
 總路徑數：{facts['total_paths']}
 違規路徑數：{facts['violated_count']}，slack 值：{facts['violated_slacks']}
 通過路徑數：{facts['met_count']}，slack 值：{facts['met_slacks']}
-Startpoints：{facts['startpoints']}
-Endpoints：{facts['endpoints']}
+Startpoints：{facts['startpoints'][:5]}
+Endpoints：{facts['endpoints'][:5]}
 """
 
     prompt = f"""你是一位資深 IC 設計工程師，請用繁體中文回答。
@@ -64,8 +93,8 @@ Endpoints：{facts['endpoints']}
 以下是從 STA report 提取的確定事實（數字絕對正確，請勿更改）：
 {facts_summary}
 
-完整 STA report 原文：
-{report_content}
+完整 STA report 原文（節錄）：
+{report_content[:3000]}
 
 請根據以上資訊，用新人工程師能看懂的方式輸出：
 
@@ -80,16 +109,10 @@ Endpoints：{facts['endpoints']}
     console.print("\n[blue]🔄 正在分析...[/blue]\n")
 
     try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            timeout=30
-        )
-        result = response.choices[0].message.content
+        result = call_llm_with_retry(client, prompt)
         console.print(Panel(Markdown(result), title="📋 ChipMentor 知識卡片", style="bold green"))
-
     except Exception as e:
-        console.print(f"[red]API 錯誤：{e}[/red]")
+        console.print(f"[red]API 錯誤（已重試 3 次）：{e}[/red]")
         console.print("[yellow]提示：請檢查網路連線或 API key 是否有效[/yellow]")
         sys.exit(1)
 
